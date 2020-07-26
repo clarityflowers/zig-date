@@ -1,5 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
+const formatDate = @import("date.zig").formatDate;
 
 pub const CalendarMonth = enum {
     January = 1, February = 2, March = 3, April = 4, May = 5, June = 6, July = 7, August = 8, September = 9, October = 10, November = 11, December = 12
@@ -90,6 +91,17 @@ pub const Month = struct {
     pub fn equals(month: Month, other: Month) bool {
         return month.year == other.year and month.month == other.month;
     }
+
+    /// The format keywords are listed below. Any other characters are reproduced literally.
+    /// M - the month as one or two digits (1, 10)
+    /// MM - the month as two digits (01, 10)
+    /// Month - the month, written out (January, October)
+    /// YY - the year as two digits (98, 20)
+    /// YYYY - the year as four digits (1998, 2020)
+    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void {
+        if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
+        return formatDate(fmt, writer, value, null);
+    }
 };
 
 test "can create month" {
@@ -128,4 +140,20 @@ test "isOnOrBefore and isOnOrAfter" {
     testing.expect(Month.init(2020, 5).isOnOrAfter(Month.init(2020, 5)));
     testing.expect(Month.init(2020, 5).isOnOrBefore(Month.init(2021, 3)));
     testing.expect(Month.init(2020, 5).isOnOrBefore(Month.init(2020, 5)));
+}
+
+test "format" {
+    var buffer = [_]u8{0} ** 9;
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..]);
+        const out_stream = &stream.outStream();
+        try out_stream.print("{Month, 'YY}", .{Month.init(2020, 6)});
+        testing.expectEqualStrings("June, '20", stream.buffer);
+    }
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..7]);
+        const out_stream = &stream.outStream();
+        try out_stream.print("{}", .{Month.init(2020, 6)});
+        testing.expectEqualStrings("2020-06", stream.buffer);
+    }
 }

@@ -90,10 +90,6 @@ pub const Date = struct {
         return other.isBefore(date);
     }
 
-    pub fn format(value: Date, comptime fmt: []const u8, options: std.fmt.FormatOptions, out_stream: var) !void {
-        try out_stream.print("{}-{}-{}", .{ value.month.year, @enumToInt(value.month.month), value.day });
-    }
-
     pub fn parse(string: []const u8) !Date {
         const err = error.InvalidDate;
         if (string.len != 10) return err;
@@ -105,7 +101,7 @@ pub const Date = struct {
         return init(year, month, day);
     }
 
-    /// Format keywords
+    /// The format keywords are listed below. Any other characters are reproduced literally.
     /// D - the day as one or two digits (1, 3, 15)
     /// DD - the day as two digits (01, 03, 15)
     /// Day - the day of the week (Monday, Friday)
@@ -114,59 +110,9 @@ pub const Date = struct {
     /// Month - the month, written out (January, October)
     /// YY - the year as two digits (98, 20)
     /// YYYY - the year as four digits (1998, 2020)
-    pub fn formatCustom(date: @This(), fmt: []const u8, out_stream: var) !void {
-        var i: usize = 0;
-        while (i < fmt.len) {
-            var j = i;
-            const char = fmt[i];
-            if (char == 'D') {
-                if (i + 1 < fmt.len and fmt[i + 1] == 'D') {
-                    try out_stream.print("{d:0>2}", .{@intCast(u32, date.day)});
-                    i += 2;
-                    continue;
-                }
-                if (i + 2 < fmt.len and mem.eql(u8, fmt[i .. i + 3], "Day")) {
-                    _ = try out_stream.write(@tagName(date.dayOfWeek()));
-                    i += 3;
-                    continue;
-                }
-
-                try out_stream.print("{d}", .{date.day});
-                i += 1;
-                continue;
-            }
-            if (char == 'M') {
-                if (i + 1 < fmt.len and fmt[i + 1] == 'M') {
-                    try out_stream.print("{d:0>2}", .{@enumToInt(date.month.month)});
-                    i += 2;
-                    continue;
-                }
-                if (i + 4 < fmt.len and mem.eql(u8, fmt[i .. i + 5], "Month")) {
-                    _ = try out_stream.write(@tagName(date.month.month));
-                    i += 5;
-                    continue;
-                }
-
-                try out_stream.print("{d}", .{@enumToInt(date.month.month)});
-                i += 1;
-                continue;
-            }
-            if (char == 'Y') {
-                if (i + 3 < fmt.len and mem.eql(u8, fmt[i .. i + 4], "YYYY")) {
-                    try out_stream.print("{d:0>4}", .{date.month.year});
-                    i += 4;
-                    continue;
-                }
-                if (i + 1 < fmt.len and fmt[i + 1] == 'Y') {
-                    const last_two_digits = date.month.year - @divTrunc(date.month.year, 100) * 100;
-                    try out_stream.print("{d:0>2}", .{last_two_digits});
-                    i += 2;
-                    continue;
-                }
-            }
-            try out_stream.writeByte(char);
-            i += 1;
-        }
+    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void {
+        if (fmt.len == 0) return writer.print("{YYYY-MM-DD}", .{value});
+        return formatDate(fmt, writer, value.month, value.day);
     }
 
     pub fn parseCustom(fmt: []const u8, string: []const u8) !Date {
@@ -255,6 +201,61 @@ pub const Date = struct {
     }
 };
 
+pub fn formatDate(comptime fmt: []const u8, writer: var, month: Month, day: ?i32) !void {
+    comptime var i: usize = 0;
+    inline while (i < fmt.len) {
+        if (matchLiteral(fmt, i, "DD")) |index| {
+            i = index;
+            if (day) |d| {
+                try writer.print("{d:0>2}", .{@intCast(u32, d)});
+            } else {
+                _ = try writer.write("DD");
+            }
+        } else if (matchLiteral(fmt, i, "Day")) |index| {
+            i = index;
+            if (day) |d| {
+                const date = Date{ .month = month, .day = d };
+                _ = try writer.write(@tagName(date.dayOfWeek()));
+            } else {
+                _ = try writer.write("Day");
+            }
+        } else if (fmt[i] == 'D') {
+            i += 1;
+            if (day) |d| {
+                try writer.print("{d}", .{d});
+            } else {
+                try writer.writeByte('D');
+            }
+        } else if (matchLiteral(fmt, i, "MM")) |index| {
+            i = index;
+            try writer.print("{d:0>2}", .{@enumToInt(month.month)});
+        } else if (matchLiteral(fmt, i, "Month")) |index| {
+            i = index;
+            _ = try writer.write(@tagName(month.month));
+        } else if (fmt[i] == 'M') {
+            i += 1;
+            try writer.print("{d}", .{@enumToInt(value.month.month)});
+        } else if (matchLiteral(fmt, i, "YYYY")) |index| {
+            i = index;
+            try writer.print("{d:0>4}", .{month.year});
+        } else if (matchLiteral(fmt, i, "YY")) |index| {
+            i = index;
+            const last_two_digits = month.year - @divTrunc(month.year, 100) * 100;
+            try writer.print("{d:0>2}", .{last_two_digits});
+        } else {
+            try writer.writeByte(fmt[i]);
+            i += 1;
+        }
+    }
+}
+
+pub fn matchLiteral(comptime str: []const u8, index: comptime_int, comptime literal: []const u8) ?comptime_int {
+    if (str.len - index >= literal.len and mem.eql(u8, str[index .. index + literal.len], literal)) {
+        return index + literal.len;
+    }
+    return null;
+}
+
 test "can create day" {
     testing.expectEqual(Date{
         .month = .{ .year = 2020, .month = .March },
@@ -283,19 +284,19 @@ test "toWeek" {
     testing.expectEqual(Date.init(2020, 3, 2), Date.init(2020, 3, 8).toWeek().monday);
 }
 
-test "formatCustom" {
+test "format" {
     var buffer = [_]u8{0} ** 19;
     {
         var stream = std.io.fixedBufferStream(buffer[0..]);
         const out_stream = &stream.outStream();
-        try Date.init(2020, 6, 1).formatCustom("Day, Month D, 'YY", out_stream);
-        testing.expectEqualSlices(u8, "Monday, June 1, '20", stream.buffer);
+        try out_stream.print("{Day, Month D, 'YY}", .{Date.init(2020, 6, 1)});
+        testing.expectEqualStrings("Monday, June 1, '20", stream.buffer);
     }
     {
         var stream = std.io.fixedBufferStream(buffer[0..10]);
         const out_stream = &stream.outStream();
-        try Date.init(2020, 6, 1).formatCustom("YYYY-MM-DD", out_stream);
-        testing.expectEqualSlices(u8, "2020-06-01", stream.buffer);
+        try out_stream.print("{YYYY-MM-DD}", .{Date.init(2020, 6, 1)});
+        testing.expectEqualStrings("2020-06-01", stream.buffer);
     }
 }
 test "parse" {
