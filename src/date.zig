@@ -91,14 +91,7 @@ pub const Date = struct {
     }
 
     pub fn parse(string: []const u8) !Date {
-        const err = error.InvalidDate;
-        if (string.len != 10) return err;
-        const year = std.fmt.parseInt(u16, string[0..4], 10) catch return err;
-        if (string[4] != '-') return err;
-        const month = std.fmt.parseInt(i32, string[5..7], 10) catch return err;
-        if (string[7] != '-') return err;
-        const day = std.fmt.parseInt(i32, string[8..10], 10) catch return err;
-        return init(year, month, day);
+        return try parseStringComptimeFmt("Y-M-D", string);
     }
 
     /// The format keywords are listed below. Any other characters are reproduced literally.
@@ -115,89 +108,22 @@ pub const Date = struct {
         return formatDate(fmt, writer, value.month, value.day);
     }
 
-    pub fn parseCustom(fmt: []const u8, string: []const u8) !Date {
-        var year: ?u16 = null;
-        var month: ?i32 = null;
-        var day: ?i32 = null;
-        const peek = &io.peekStream(1, io.fixedBufferStream(string).inStream());
-        const stream = &peek.inStream();
-        for (fmt) |c, i| {
-            switch (c) {
-                'D' => {
-                    if (day != null) return error.FormatHasTooManyDays;
-                    day = 0;
-                    var read: usize = 0;
-                    while (read < 2) : (read += 1) {
-                        const byte = stream.readByte() catch |err| {
-                            switch (err) {
-                                error.EndOfStream => break,
-                            }
-                        };
-                        switch (byte) {
-                            '0'...'9' => {
-                                day = day.? * 10 + @as(i32, byte - '0');
-                            },
-                            else => {
-                                try peek.putBackByte(byte);
-                            },
-                        }
-                    }
-                    if (read == 0) return error.InvalidDay;
-                },
-                'M' => {
-                    if (month != null) return error.FormatHasTooManyMonths;
-                    month = 0;
-                    var read: usize = 0;
-                    while (read < 2) : (read += 1) {
-                        const byte = stream.readByte() catch |err| {
-                            switch (err) {
-                                error.EndOfStream => break,
-                            }
-                        };
-                        switch (byte) {
-                            '0'...'9' => {
-                                month = month.? * 10 + @as(i32, byte - '0');
-                            },
-                            else => {
-                                try peek.putBackByte(byte);
-                            },
-                        }
-                    }
-                    if (read == 0) return error.InvalidMonth;
-                },
-                'Y' => {
-                    if (year != null) return error.FormatHsTooManyYears;
-                    year = 0;
-                    var read: usize = 0;
-                    while (read < 4) : (read += 1) {
-                        const byte = stream.readByte() catch |err| {
-                            switch (err) {
-                                error.EndOfStream => break,
-                            }
-                        };
-                        switch (byte) {
-                            '0'...'9' => {
-                                year = year.? * 10 + @as(u16, byte - '0');
-                            },
-                            else => {
-                                try peek.putBackByte(byte);
-                            },
-                        }
-                    }
-                    if (read == 0) return error.InvalidYear;
-                },
-                else => {
-                    if ((try stream.readByte()) != c) return error.FailedToMatchLiteral;
-                },
-            }
-        }
-        if (year) |y| {
-            if (month) |m| {
-                if (day) |d| {
-                    return init(y, m, d);
-                } else return error.FormatHasNoDate;
-            } else return error.FormatHasNoMonth;
-        } else return error.FormatHasNoYear;
+    pub fn parseFmt(fmt: []const u8, reader: var) !Date {
+        return parseDateFmt(fmt, .date, reader);
+    }
+
+    pub fn parseStringFmt(fmt: []const u8, str: []const u8) !Date {
+        var reader = io.fixedBufferStream(str).reader();
+        return parseFmt(fmt, reader);
+    }
+
+    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: var) !Date {
+        return parseDateComptimeFmt(fmt, .date, reader);
+    }
+
+    pub fn parseStringComptimeFmt(comptime fmt: []const u8, str: []const u8) !Date {
+        var reader = io.fixedBufferStream(str).reader();
+        return parseComptimeFmt(fmt, reader);
     }
 };
 
@@ -247,6 +173,169 @@ pub fn formatDate(comptime fmt: []const u8, writer: var, month: Month, day: ?i32
             i += 1;
         }
     }
+}
+
+const ParseMode = enum {
+    month, date
+};
+
+pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, reader: var) !(switch (mode) {
+    .month => Month,
+    .date => Date,
+}) {
+    var year: u16 = undefined;
+    var month: i32 = undefined;
+    var day: i32 = undefined;
+
+    comptime var has_year = false;
+    comptime var has_month = false;
+    comptime var has_day = false;
+
+    var peek_stream = io.peekStream(1, reader);
+
+    inline for (fmt) |c, i| {
+        var match_literal = false;
+        switch (c) {
+            'D' => {
+                if (mode == .month) {
+                    match_literal = true;
+                    continue;
+                }
+                if (has_day) @compileError("Parse format can only have one 'D'.");
+                has_day = true;
+                day = try parseIntUpToNDigits(i32, &peek_stream, 2);
+            },
+            'M' => {
+                if (has_month) @compileError("Parse format can only have one 'M'.");
+                has_month = true;
+                month = try parseIntUpToNDigits(i32, &peek_stream, 2);
+            },
+            'Y' => {
+                if (has_year) @compileError("Parse format can only have one 'Y'");
+                year = try parseIntUpToNDigits(u16, &peek_stream, 4);
+            },
+            else => {
+                match_literal = true;
+            },
+        }
+        if (match_literal) {
+            if ((try peek_stream.reader().readByte()) != c) return error.FailedToMatchLiteral;
+        }
+    }
+    return switch (mode) {
+        .month => Month.init(year, month),
+        .date => Date.init(year, month, day),
+    };
+}
+
+pub fn parseDateFmt(fmt: []const u8, comptime mode: ParseMode, reader: var) !(switch (mode) {
+    .month => Month,
+    .date => Date,
+}) {
+    var year: ?u16 = null;
+    var month: ?i32 = null;
+    var day: ?i32 = null;
+    var peek_stream = io.peekStream(1, reader);
+    for (fmt) |c, i| {
+        var match_literal = false;
+        switch (c) {
+            'D' => {
+                if (mode == .month) {
+                    match_literal = true;
+                    continue;
+                }
+                if (day != null) {
+                    return error.FormatHasTooManyDays;
+                }
+                day = try parseIntUpToNDigits(i32, &peek_stream, 2);
+            },
+            'M' => {
+                if (month != null) return error.FormatHasTooManyMonths;
+                month = try parseIntUpToNDigits(i32, &peek_stream, 2);
+            },
+            'Y' => {
+                if (year != null) return error.FormatHsTooManyYears;
+                year = try parseIntUpToNDigits(u16, &peek_stream, 4);
+            },
+            else => {
+                match_literal = true;
+            },
+        }
+        if (match_literal) {
+            if ((try peek_stream.reader().readByte()) != c) return error.FailedToMatchLiteral;
+        }
+    }
+    if (year == null) return error.FormatHasNoYear;
+    if (month == null) return error.FormatHasNoMonth;
+    if (mode == .month) {
+        return Month.init(year.?, month.?);
+    }
+    if (day == null) return error.FormatHasNoDay;
+    return Date.init(year.?, month.?, day.?);
+}
+
+fn parseIntUpToNDigits(comptime T: type, peek_stream: var, comptime digits: usize) !T {
+    var value = @as(T, 0);
+    var read: usize = 0;
+    while (read < digits) : (read += 1) {
+        const byte = peek_stream.reader().readByte() catch |err| {
+            switch (err) {
+                error.EndOfStream => break,
+            }
+        };
+        switch (byte) {
+            '0'...'9' => {
+                value = value * 10 + @as(T, byte - '0');
+            },
+            else => {
+                try peek_stream.putBackByte(byte);
+            },
+        }
+    }
+    if (read == 0) return error.InvalidDay;
+    return value;
+}
+
+fn parseMonth(peek_stream: var) !i32 {
+    var month: i32 = 0;
+    var read: usize = 0;
+    while (read < 2) : (read += 1) {
+        const byte = peek_stream.reader().readByte() catch |err| {
+            switch (err) {
+                error.EndOfStream => break,
+            }
+        };
+        switch (byte) {
+            '0'...'9' => {
+                month = month.? * 10 + @as(i32, byte - '0');
+            },
+            else => {
+                try peek_stream.putBackByte(byte);
+            },
+        }
+    }
+    if (read == 0) return error.InvalidMonth;
+}
+
+fn parseYear(peek_stream: var) !u16 {
+    year = 0;
+    var read: usize = 0;
+    while (read < 4) : (read += 1) {
+        const byte = stream.readByte() catch |err| {
+            switch (err) {
+                error.EndOfStream => break,
+            }
+        };
+        switch (byte) {
+            '0'...'9' => {
+                year = year.? * 10 + @as(u16, byte - '0');
+            },
+            else => {
+                try peek.putBackByte(byte);
+            },
+        }
+    }
+    if (read == 0) return error.InvalidYear;
 }
 
 pub fn matchLiteral(comptime str: []const u8, index: comptime_int, comptime literal: []const u8) ?comptime_int {
@@ -302,8 +391,13 @@ test "format" {
 test "parse" {
     testing.expectEqual(Date.init(2020, 6, 1), try Date.parse("2020-06-01"));
 }
-test "parseCustom" {
-    testing.expectEqual(Date.init(2020, 6, 1), try Date.parseCustom("Y/M/D", "2020/6/1"));
-    testing.expectEqual(Date.init(2020, 3, 17), try Date.parseCustom("Y-M-D", "2020-03-17 19:23:18 PDT"));
-    testing.expectEqual(Date.init(2020, 5, 8), try Date.parseCustom("M/D/Y", "05/08/2020"));
+test "parseFmt" {
+    testing.expectEqual(Date.init(2020, 6, 1), try Date.parseStringFmt("Y/M/D", "2020/6/1"));
+    testing.expectEqual(Date.init(2020, 3, 17), try Date.parseStringFmt("Y-M-D", "2020-03-17 19:23:18 PDT"));
+    testing.expectEqual(Date.init(2020, 5, 8), try Date.parseStringFmt("M/D/Y", "05/08/2020"));
+}
+test "parseStringComptimeFmt" {
+    testing.expectEqual(Date.init(2020, 6, 1), try Date.parseStringComptimeFmt("Y/M/D", "2020/6/1"));
+    testing.expectEqual(Date.init(2020, 3, 17), try Date.parseStringComptimeFmt("Y-M-D", "2020-03-17 19:23:18 PDT"));
+    testing.expectEqual(Date.init(2020, 5, 8), try Date.parseStringComptimeFmt("M/D/Y", "05/08/2020"));
 }

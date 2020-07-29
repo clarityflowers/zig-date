@@ -1,6 +1,7 @@
 const std = @import("std");
+const io = std.io;
 const testing = std.testing;
-const formatDate = @import("date.zig").formatDate;
+const date = @import("date.zig");
 
 pub const CalendarMonth = enum {
     January = 1, February = 2, March = 3, April = 4, May = 5, June = 6, July = 7, August = 8, September = 9, October = 10, November = 11, December = 12
@@ -100,7 +101,29 @@ pub const Month = struct {
     /// YYYY - the year as four digits (1998, 2020)
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
-        return formatDate(fmt, writer, value, null);
+        return date.formatDate(fmt, writer, value, null);
+    }
+
+    pub fn parse(string: []const u8) !@This() {
+        return parseStringComptimeFmt("Y-M", string);
+    }
+
+    pub fn parseFmt(fmt: []const u8, reader: var) !@This() {
+        return date.parseDateFmt(fmt, .month, reader);
+    }
+
+    pub fn parseStringFmt(fmt: []const u8, str: []const u8) !@This() {
+        const reader = io.fixedBufferStream(str).reader();
+        return parseFmt(fmt, reader);
+    }
+
+    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: var) !@This() {
+        return date.parseDateComptimeFmt(fmt, .month, reader);
+    }
+
+    pub fn parseStringComptimeFmt(comptime fmt: []const u8, str: []const u8) !@This() {
+        const reader = io.fixedBufferStream(str).reader();
+        return parseComptimeFmt(fmt, reader);
     }
 };
 
@@ -156,4 +179,11 @@ test "format" {
         try out_stream.print("{}", .{Month.init(2020, 6)});
         testing.expectEqualStrings("2020-06", stream.buffer);
     }
+}
+test "parse" {
+    testing.expectEqual(Month.init(2020, 5), try Month.parse("2020-05"));
+    testing.expectEqual(Month.init(2008, 7), try Month.parseStringFmt("Y-M", "2008-7"));
+    testing.expectEqual(Month.init(1970, 1), try Month.parseStringFmt("M/Y", "1/1970"));
+    testing.expectEqual(Month.init(2008, 7), try Month.parseStringComptimeFmt("Y-M", "2008-7"));
+    testing.expectEqual(Month.init(1970, 1), try Month.parseStringComptimeFmt("M/Y", "1/1970"));
 }
