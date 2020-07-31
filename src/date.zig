@@ -78,6 +78,10 @@ pub const Date = struct {
         return @intToEnum(Weekday, @intCast(u3, weekday));
     }
 
+    pub fn equals(self: @This(), other: @This()) bool {
+        return self.day == other.day and self.month.equals(other.month);
+    }
+
     pub fn toWeek(date: Date) Week {
         return Week.fromDate(date);
     }
