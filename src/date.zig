@@ -101,18 +101,20 @@ pub const Date = struct {
     /// The format keywords are listed below. Any other characters are reproduced literally.
     /// D - the day as one or two digits (1, 3, 15)
     /// DD - the day as two digits (01, 03, 15)
-    /// Day - the day of the week (Monday, Friday)
+    /// Weekday - the day of the week (Monday, Friday)
+    /// Day - the day of the week, short (Mon, Fri)
     /// M - the month as one or two digits (1, 10)
     /// MM - the month as two digits (01, 10)
     /// Month - the month, written out (January, October)
+    /// Mon - the month, short (Jan, Oct)
     /// YY - the year as two digits (98, 20)
     /// YYYY - the year as four digits (1998, 2020)
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void {
+    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM-DD}", .{value});
         return formatDate(fmt, writer, value.month, value.day);
     }
 
-    pub fn parseFmt(fmt: []const u8, reader: var) !Date {
+    pub fn parseFmt(fmt: []const u8, reader: anytype) !Date {
         return parseDateFmt(fmt, .date, reader);
     }
 
@@ -121,7 +123,7 @@ pub const Date = struct {
         return parseFmt(fmt, reader);
     }
 
-    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: var) !Date {
+    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: anytype) !Date {
         return parseDateComptimeFmt(fmt, .date, reader);
     }
 
@@ -131,7 +133,7 @@ pub const Date = struct {
     }
 };
 
-pub fn formatDate(comptime fmt: []const u8, writer: var, month: Month, day: ?i32) !void {
+pub fn formatDate(comptime fmt: []const u8, writer: anytype, month: Month, day: ?i32) !void {
     comptime var i: usize = 0;
     inline while (i < fmt.len) {
         if (matchLiteral(fmt, i, "DD")) |index| {
@@ -139,15 +141,23 @@ pub fn formatDate(comptime fmt: []const u8, writer: var, month: Month, day: ?i32
             if (day) |d| {
                 try writer.print("{d:0>2}", .{@intCast(u32, d)});
             } else {
-                _ = try writer.write("DD");
+                try writer.writeAll("DD");
             }
         } else if (matchLiteral(fmt, i, "Day")) |index| {
             i = index;
             if (day) |d| {
                 const date = Date{ .month = month, .day = d };
-                _ = try writer.write(@tagName(date.dayOfWeek()));
+                try writer.writeAll(@tagName(date.dayOfWeek())[0..3]);
             } else {
-                _ = try writer.write("Day");
+                try writer.writeAll("Day");
+            }
+        } else if (matchLiteral(fmt, i, "Weekday")) |index| {
+            i = index;
+            if (day) |d| {
+                const date = Date{ .month = month, .day = d };
+                try writer.writeAll(@tagName(date.dayOfWeek()));
+            } else {
+                try writer.writeAll("Weekday");
             }
         } else if (fmt[i] == 'D') {
             i += 1;
@@ -161,7 +171,10 @@ pub fn formatDate(comptime fmt: []const u8, writer: var, month: Month, day: ?i32
             try writer.print("{d:0>2}", .{@enumToInt(month.month)});
         } else if (matchLiteral(fmt, i, "Month")) |index| {
             i = index;
-            _ = try writer.write(@tagName(month.month));
+            try writer.writeAll(@tagName(month.month));
+        } else if (matchLiteral(fmt, i, "Mon")) |index| {
+            i = index;
+            try writer.writeAll(@tagName(month.month)[0..3]);
         } else if (fmt[i] == 'M') {
             i += 1;
             try writer.print("{d}", .{@enumToInt(value.month.month)});
@@ -183,7 +196,7 @@ const ParseMode = enum {
     month, date
 };
 
-pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, reader: var) !(switch (mode) {
+pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, reader: anytype) !(switch (mode) {
     .month => Month,
     .date => Date,
 }) {
@@ -232,7 +245,7 @@ pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, 
     };
 }
 
-pub fn parseDateFmt(fmt: []const u8, comptime mode: ParseMode, reader: var) !(switch (mode) {
+pub fn parseDateFmt(fmt: []const u8, comptime mode: ParseMode, reader: anytype) !(switch (mode) {
     .month => Month,
     .date => Date,
 }) {
@@ -278,7 +291,7 @@ pub fn parseDateFmt(fmt: []const u8, comptime mode: ParseMode, reader: var) !(sw
     return Date.init(year.?, month.?, day.?);
 }
 
-fn parseIntUpToNDigits(comptime T: type, peek_stream: var, comptime digits: usize) !T {
+fn parseIntUpToNDigits(comptime T: type, peek_stream: anytype, comptime digits: usize) !T {
     var value = @as(T, 0);
     var read: usize = 0;
     while (read < digits) : (read += 1) {
@@ -300,7 +313,7 @@ fn parseIntUpToNDigits(comptime T: type, peek_stream: var, comptime digits: usiz
     return value;
 }
 
-fn parseMonth(peek_stream: var) !i32 {
+fn parseMonth(peek_stream: anytype) !i32 {
     var month: i32 = 0;
     var read: usize = 0;
     while (read < 2) : (read += 1) {
@@ -321,7 +334,7 @@ fn parseMonth(peek_stream: var) !i32 {
     if (read == 0) return error.InvalidMonth;
 }
 
-fn parseYear(peek_stream: var) !u16 {
+fn parseYear(peek_stream: anytype) !u16 {
     year = 0;
     var read: usize = 0;
     while (read < 4) : (read += 1) {
