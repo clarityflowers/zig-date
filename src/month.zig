@@ -99,7 +99,7 @@ pub const Month = struct {
     /// Month - the month, written out (January, October)
     /// YY - the year as two digits (98, 20)
     /// YYYY - the year as four digits (1998, 2020)
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: var) !void {
+    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
         return date.formatDate(fmt, writer, value, null);
     }
@@ -108,7 +108,7 @@ pub const Month = struct {
         return parseStringComptimeFmt("Y-M", string);
     }
 
-    pub fn parseFmt(fmt: []const u8, reader: var) !@This() {
+    pub fn parseFmt(fmt: []const u8, reader: anytype) !@This() {
         return date.parseDateFmt(fmt, .month, reader);
     }
 
@@ -117,7 +117,7 @@ pub const Month = struct {
         return parseFmt(fmt, reader);
     }
 
-    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: var) !@This() {
+    pub fn parseComptimeFmt(comptime fmt: []const u8, reader: anytype) !@This() {
         return date.parseDateComptimeFmt(fmt, .month, reader);
     }
 
