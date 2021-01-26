@@ -114,6 +114,13 @@ pub const Date = struct {
         return formatDate(fmt, writer, value.month, value.day);
     }
 
+    pub fn toString(self: @This()) [10:0]u8 {
+        var buffer: [10:0]u8 = undefined;
+        const writer = std.io.fixedBufferStream(@as([]u8, &buffer)).writer();
+        writer.print("{}", .{self}) catch unreachable;
+        return buffer;
+    }
+
     pub fn parseFmt(fmt: []const u8, reader: anytype) !Date {
         return parseDateFmt(fmt, .date, reader);
     }
@@ -391,12 +398,12 @@ test "toWeek" {
 }
 
 test "format" {
-    var buffer = [_]u8{0} ** 19;
+    var buffer = [_]u8{0} ** 24;
     {
         var stream = std.io.fixedBufferStream(buffer[0..]);
         const out_stream = &stream.outStream();
-        try out_stream.print("{Day, Month D, 'YY}", .{Date.init(2020, 6, 1)});
-        testing.expectEqualStrings("Monday, June 1, '20", stream.buffer);
+        try out_stream.print("{Weekday (Day) Month D, 'YY}", .{Date.init(2020, 6, 1)});
+        testing.expectEqualStrings("Monday (Mon) June 1, '20", stream.buffer);
     }
     {
         var stream = std.io.fixedBufferStream(buffer[0..10]);
@@ -417,4 +424,9 @@ test "parseStringComptimeFmt" {
     testing.expectEqual(Date.init(2020, 6, 1), try Date.parseStringComptimeFmt("Y/M/D", "2020/6/1"));
     testing.expectEqual(Date.init(2020, 3, 17), try Date.parseStringComptimeFmt("Y-M-D", "2020-03-17 19:23:18 PDT"));
     testing.expectEqual(Date.init(2020, 5, 8), try Date.parseStringComptimeFmt("M/D/Y", "05/08/2020"));
+}
+
+test "toSring" {
+    testing.expectEqualStrings("2021-01-01", Date.init(2021, 1, 1).toString()[0..]);
+    testing.expectEqualStrings("2020-06-14", Date.init(2020, 6, 14).toString()[0..]);
 }
