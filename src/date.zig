@@ -184,7 +184,7 @@ pub fn formatDate(comptime fmt: []const u8, writer: anytype, month: Month, day: 
             try writer.writeAll(@tagName(month.month)[0..3]);
         } else if (fmt[i] == 'M') {
             i += 1;
-            try writer.print("{d}", .{@enumToInt(value.month.month)});
+            try writer.print("{d}", .{@enumToInt(month.month)});
         } else if (matchLiteral(fmt, i, "YYYY")) |index| {
             i = index;
             try writer.print("{d:0>4}", .{month.year});
