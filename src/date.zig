@@ -87,7 +87,8 @@ pub const Date = struct {
     }
 
     pub fn isBefore(date: Date, other: Date) bool {
-        return date.month.isBefore(other.month) or date.day < other.day;
+        if (date.month.equals(other.month)) return date.day < other.day;
+        return date.month.isBefore(other.month);
     }
 
     pub fn isAfter(date: Date, other: Date) bool {
