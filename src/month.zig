@@ -104,6 +104,13 @@ pub const Month = struct {
         return date.formatDate(fmt, writer, value, null);
     }
 
+    pub fn toString(self: Month) [7]u8 {
+        var buffer: [7]u8 = undefined;
+        const writer = std.io.fixedBufferStream(@as([]u8, &buffer)).writer();
+        writer.print("{}", .{self}) catch unreachable;
+        return buffer;
+    }
+
     pub fn parse(string: []const u8) !@This() {
         return parseStringComptimeFmt("Y-M", string);
     }
