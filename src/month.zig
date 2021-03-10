@@ -2,6 +2,7 @@ const std = @import("std");
 const io = std.io;
 const testing = std.testing;
 const date = @import("date.zig");
+usingnamespace @import("parse.zig");
 
 pub const CalendarMonth = enum {
     January = 1, February = 2, March = 3, April = 4, May = 5, June = 6, July = 7, August = 8, September = 9, October = 10, November = 11, December = 12
@@ -101,7 +102,30 @@ pub const Month = struct {
     /// YYYY - the year as four digits (1998, 2020)
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
-        return date.formatDate(fmt, writer, value, null);
+        comptime const tokens = comptime blk: {
+            var stream = FormatTokenStream{ .fmt = fmt };
+            var tokens: []const FormatToken = &[0]FormatToken{};
+            inline while (stream.next()) |token| {
+                tokens = tokens ++ &[1]FormatToken{token};
+            }
+            break :blk tokens;
+        };
+        inline for (tokens) |token| {
+            try token.print(value, writer);
+        }
+    }
+
+    pub fn formatRuntime(
+        value: @This(),
+        fmt: []const u8,
+        writer: anytype,
+    ) !void {
+        if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
+        var stream = FormatTokenStream{ .fmt = fmt };
+        var tokens: []const FormatToken = &[0]FormatToken{};
+        while (stream.next()) |token| {
+            try token.print(value, writer);
+        }
     }
 
     pub fn toString(self: Month) [7]u8 {
@@ -131,6 +155,79 @@ pub const Month = struct {
     pub fn parseStringComptimeFmt(comptime fmt: []const u8, str: []const u8) !@This() {
         const reader = io.fixedBufferStream(str).reader();
         return parseComptimeFmt(fmt, reader);
+    }
+};
+
+pub const FormatToken = union(enum) {
+    month_1digit,
+    month_2digit,
+    month_short,
+    month_long,
+    year_2digit,
+    year_4digit,
+    literal: u8,
+
+    pub fn print(self: @This(), value: Month, writer: anytype) !void {
+        switch (self) {
+            .month_1digit => {
+                try writer.print("{d}", .{@enumToInt(value.month)});
+            },
+            .month_2digit => {
+                try writer.print("{d:0>2}", .{@enumToInt(value.month)});
+            },
+            .month_short => {
+                try writer.writeAll(@tagName(value.month)[0..3]);
+            },
+            .month_long => {
+                try writer.writeAll(@tagName(value.month));
+            },
+            .year_2digit => {
+                const last_two_digits = value.year -
+                    @divTrunc(value.year, 100) * 100;
+                try writer.print("{d:0>2}", .{last_two_digits});
+            },
+            .year_4digit => {
+                try writer.print("{d:0>4}", .{value.year});
+            },
+            .literal => |literal| try writer.writeByte(literal),
+        }
+    }
+};
+
+pub fn parseFormatToken(
+    fmt: []const u8,
+    start: usize,
+) ?ParseResult(FormatToken) {
+    if (matchLiteral(fmt, start, "MM")) |index| {
+        return parseResult(FormatToken{ .month_2digit = {} }, index);
+    } else if (matchLiteral(fmt, start, "Month")) |index| {
+        return parseResult(FormatToken{ .month_long = {} }, index);
+    } else if (matchLiteral(fmt, start, "Mon")) |index| {
+        return parseResult(FormatToken{ .month_short = {} }, index);
+    } else if (matchLiteral(fmt, start, "M")) |index| {
+        return parseResult(FormatToken{ .month_1digit = {} }, index);
+    } else if (matchLiteral(fmt, start, "YYYY")) |index| {
+        return parseResult(FormatToken{ .year_4digit = {} }, index);
+    } else if (matchLiteral(fmt, start, "YY")) |index| {
+        return parseResult(FormatToken{ .year_2digit = {} }, index);
+    } else return null;
+}
+
+const FormatTokenStream = struct {
+    fmt: []const u8,
+    index: usize = 0,
+
+    fn next(self: *@This()) ?FormatToken {
+        if (self.index >= self.fmt.len) return null;
+        if (parseFormatToken(self.fmt, self.index)) |res| {
+            self.index = res.new_pos;
+            return res.data;
+        } else {
+            defer self.index += 1;
+            return FormatToken{
+                .literal = self.fmt[self.index],
+            };
+        }
     }
 };
 
@@ -176,14 +273,29 @@ test "format" {
     var buffer = [_]u8{0} ** 9;
     {
         var stream = std.io.fixedBufferStream(buffer[0..]);
-        const out_stream = &stream.outStream();
-        try out_stream.print("{Month, 'YY}", .{Month.init(2020, 6)});
+        const writer = &stream.writer();
+        try writer.print("{Month, 'YY}", .{Month.init(2020, 6)});
         testing.expectEqualStrings("June, '20", stream.buffer);
     }
     {
         var stream = std.io.fixedBufferStream(buffer[0..7]);
-        const out_stream = &stream.outStream();
-        try out_stream.print("{}", .{Month.init(2020, 6)});
+        const writer = &stream.writer();
+        try writer.print("{}", .{Month.init(2020, 6)});
+        testing.expectEqualStrings("2020-06", stream.buffer);
+    }
+}
+test "formatRuntime" {
+    var buffer = [_]u8{0} ** 9;
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..]);
+        const writer = &stream.writer();
+        try Month.init(2020, 6).formatRuntime("Month, 'YY", &stream.writer());
+        testing.expectEqualStrings("June, '20", stream.buffer);
+    }
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..7]);
+        const writer = &stream.writer();
+        try Month.init(2020, 6).formatRuntime("", &stream.writer());
         testing.expectEqualStrings("2020-06", stream.buffer);
     }
 }

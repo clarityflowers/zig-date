@@ -7,6 +7,7 @@ const month_lib = @import("month.zig");
 const Month = month_lib.Month;
 const CalendarMonth = month_lib.CalendarMonth;
 const Week = @import("week.zig").Week;
+usingnamespace @import("parse.zig");
 
 pub const Weekday = enum {
     Monday = 1, Tuesday = 2, Wednesday = 3, Thursday = 4, Friday = 5, Saturday = 6, Sunday = 7
@@ -110,9 +111,36 @@ pub const Date = struct {
     /// Mon - the month, short (Jan, Oct)
     /// YY - the year as two digits (98, 20)
     /// YYYY - the year as four digits (1998, 2020)
-    pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(
+        value: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM-DD}", .{value});
-        return formatDate(fmt, writer, value.month, value.day);
+        comptime const tokens = comptime blk: {
+            var stream = DateFormatTokenStream{ .fmt = fmt };
+            var tokens: []const DateFormatToken = &[0]DateFormatToken{};
+            inline while (stream.next()) |token| {
+                tokens = tokens ++ &[1]DateFormatToken{token};
+            }
+            break :blk tokens;
+        };
+        inline for (tokens) |token| {
+            try token.print(value, writer);
+        }
+    }
+
+    pub fn formatRuntime(
+        value: @This(),
+        fmt: []const u8,
+        writer: anytype,
+    ) !void {
+        if (fmt.len == 0) return writer.print("{YYYY-MM-DD}", .{value});
+        var stream = DateFormatTokenStream{ .fmt = fmt };
+        while (stream.next()) |token| {
+            try token.print(value, writer);
+        }
     }
 
     pub fn toString(self: @This()) [10:0]u8 {
@@ -141,64 +169,61 @@ pub const Date = struct {
     }
 };
 
-pub fn formatDate(comptime fmt: []const u8, writer: anytype, month: Month, day: ?i32) !void {
-    comptime var i: usize = 0;
-    inline while (i < fmt.len) {
-        if (matchLiteral(fmt, i, "DD")) |index| {
-            i = index;
-            if (day) |d| {
-                try writer.print("{d:0>2}", .{@intCast(u32, d)});
-            } else {
-                try writer.writeAll("DD");
-            }
-        } else if (matchLiteral(fmt, i, "Day")) |index| {
-            i = index;
-            if (day) |d| {
-                const date = Date{ .month = month, .day = d };
-                try writer.writeAll(@tagName(date.dayOfWeek())[0..3]);
-            } else {
-                try writer.writeAll("Day");
-            }
-        } else if (matchLiteral(fmt, i, "Weekday")) |index| {
-            i = index;
-            if (day) |d| {
-                const date = Date{ .month = month, .day = d };
-                try writer.writeAll(@tagName(date.dayOfWeek()));
-            } else {
-                try writer.writeAll("Weekday");
-            }
-        } else if (fmt[i] == 'D') {
-            i += 1;
-            if (day) |d| {
-                try writer.print("{d}", .{d});
-            } else {
-                try writer.writeByte('D');
-            }
-        } else if (matchLiteral(fmt, i, "MM")) |index| {
-            i = index;
-            try writer.print("{d:0>2}", .{@enumToInt(month.month)});
-        } else if (matchLiteral(fmt, i, "Month")) |index| {
-            i = index;
-            try writer.writeAll(@tagName(month.month));
-        } else if (matchLiteral(fmt, i, "Mon")) |index| {
-            i = index;
-            try writer.writeAll(@tagName(month.month)[0..3]);
-        } else if (fmt[i] == 'M') {
-            i += 1;
-            try writer.print("{d}", .{@enumToInt(month.month)});
-        } else if (matchLiteral(fmt, i, "YYYY")) |index| {
-            i = index;
-            try writer.print("{d:0>4}", .{month.year});
-        } else if (matchLiteral(fmt, i, "YY")) |index| {
-            i = index;
-            const last_two_digits = month.year - @divTrunc(month.year, 100) * 100;
-            try writer.print("{d:0>2}", .{last_two_digits});
-        } else {
-            try writer.writeByte(fmt[i]);
-            i += 1;
+const DateFormatToken = union(enum) {
+    day_1digit,
+    day_2digit,
+    day_of_week_short,
+    day_of_week_long,
+    month: month_lib.FormatToken,
+
+    fn print(self: @This(), value: Date, writer: anytype) !void {
+        switch (self) {
+            .day_1digit => try writer.print("{d}", .{value.day}),
+            .day_2digit => {
+                try writer.print("{d:0>2}", .{@intCast(u32, value.day)});
+            },
+            .day_of_week_short => {
+                try writer.writeAll(@tagName(value.dayOfWeek())[0..3]);
+            },
+            .day_of_week_long => {
+                try writer.writeAll(@tagName(value.dayOfWeek()));
+            },
+            .month => |month| try month.print(value.month, writer),
         }
     }
-}
+};
+
+const DateFormatTokenStream = struct {
+    fmt: []const u8,
+    index: usize = 0,
+
+    fn next(self: *@This()) ?DateFormatToken {
+        if (self.index >= self.fmt.len) return null;
+        if (month_lib.parseFormatToken(self.fmt, self.index)) |res| {
+            self.index = res.new_pos;
+            return DateFormatToken{ .month = res.data };
+        } else if (matchLiteral(self.fmt, self.index, "DD")) |index| {
+            self.index = index;
+            return DateFormatToken.day_2digit;
+        } else if (matchLiteral(self.fmt, self.index, "Day")) |index| {
+            self.index = index;
+            return DateFormatToken.day_of_week_short;
+        } else if (matchLiteral(self.fmt, self.index, "Weekday")) |index| {
+            self.index = index;
+            return DateFormatToken.day_of_week_long;
+        } else if (matchLiteral(self.fmt, self.index, "D")) |index| {
+            self.index = index;
+            return DateFormatToken.day_1digit;
+        } else {
+            defer self.index += 1;
+            return DateFormatToken{
+                .month = .{
+                    .literal = self.fmt[self.index],
+                },
+            };
+        }
+    }
+};
 
 const ParseMode = enum {
     month, date
@@ -363,13 +388,6 @@ fn parseYear(peek_stream: anytype) !u16 {
     if (read == 0) return error.InvalidYear;
 }
 
-pub fn matchLiteral(comptime str: []const u8, index: comptime_int, comptime literal: []const u8) ?comptime_int {
-    if (str.len - index >= literal.len and mem.eql(u8, str[index .. index + literal.len], literal)) {
-        return index + literal.len;
-    }
-    return null;
-}
-
 test "can create day" {
     testing.expectEqual(Date{
         .month = .{ .year = 2020, .month = .March },
@@ -402,14 +420,36 @@ test "format" {
     var buffer = [_]u8{0} ** 24;
     {
         var stream = std.io.fixedBufferStream(buffer[0..]);
-        const out_stream = &stream.outStream();
-        try out_stream.print("{Weekday (Day) Month D, 'YY}", .{Date.init(2020, 6, 1)});
+        const writer = &stream.writer();
+        try writer.print(
+            "{Weekday (Day) Month D, 'YY}",
+            .{Date.init(2020, 6, 1)},
+        );
         testing.expectEqualStrings("Monday (Mon) June 1, '20", stream.buffer);
     }
     {
         var stream = std.io.fixedBufferStream(buffer[0..10]);
-        const out_stream = &stream.outStream();
-        try out_stream.print("{YYYY-MM-DD}", .{Date.init(2020, 6, 1)});
+        const writer = &stream.writer();
+        try writer.print("{YYYY-MM-DD}", .{Date.init(2020, 6, 1)});
+        testing.expectEqualStrings("2020-06-01", stream.buffer);
+    }
+}
+test "formatRuntime" {
+    var buffer = [_]u8{0} ** 24;
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..]);
+        try Date.init(2020, 6, 1).formatRuntime(
+            "Weekday (Day) Month D, 'YY",
+            &stream.writer(),
+        );
+        testing.expectEqualStrings("Monday (Mon) June 1, '20", stream.buffer);
+    }
+    {
+        var stream = std.io.fixedBufferStream(buffer[0..10]);
+        try Date.init(2020, 6, 1).formatRuntime(
+            "YYYY-MM-DD",
+            &stream.writer(),
+        );
         testing.expectEqualStrings("2020-06-01", stream.buffer);
     }
 }
