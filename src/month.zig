@@ -2,11 +2,12 @@ const std = @import("std");
 const io = std.io;
 const testing = std.testing;
 const date = @import("date.zig");
-usingnamespace @import("parse.zig");
+const parse = @import("parse.zig");
+const ParseResult = parse.ParseResult;
+const matchLiteral = parse.matchLiteral;
+const parseResult = parse.parseResult;
 
-pub const CalendarMonth = enum {
-    January = 1, February = 2, March = 3, April = 4, May = 5, June = 6, July = 7, August = 8, September = 9, October = 10, November = 11, December = 12
-};
+pub const CalendarMonth = enum(u4) { January = 1, February = 2, March = 3, April = 4, May = 5, June = 6, July = 7, August = 8, September = 9, October = 10, November = 11, December = 12 };
 
 fn isLeapYear(year: u16) bool {
     return (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0));
@@ -101,8 +102,9 @@ pub const Month = struct {
     /// YY - the year as two digits (98, 20)
     /// YYYY - the year as four digits (1998, 2020)
     pub fn format(value: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
         if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
-        comptime const tokens = comptime blk: {
+        const tokens = comptime blk: {
             var stream = FormatTokenStream{ .fmt = fmt };
             var tokens: []const FormatToken = &[0]FormatToken{};
             inline while (stream.next()) |token| {
@@ -122,7 +124,6 @@ pub const Month = struct {
     ) !void {
         if (fmt.len == 0) return writer.print("{YYYY-MM}", .{value});
         var stream = FormatTokenStream{ .fmt = fmt };
-        var tokens: []const FormatToken = &[0]FormatToken{};
         while (stream.next()) |token| {
             try token.print(value, writer);
         }
@@ -288,13 +289,11 @@ test "formatRuntime" {
     var buffer = [_]u8{0} ** 9;
     {
         var stream = std.io.fixedBufferStream(buffer[0..]);
-        const writer = &stream.writer();
         try Month.init(2020, 6).formatRuntime("Month, 'YY", &stream.writer());
         testing.expectEqualStrings("June, '20", stream.buffer);
     }
     {
         var stream = std.io.fixedBufferStream(buffer[0..7]);
-        const writer = &stream.writer();
         try Month.init(2020, 6).formatRuntime("", &stream.writer());
         testing.expectEqualStrings("2020-06", stream.buffer);
     }

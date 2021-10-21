@@ -7,11 +7,12 @@ const month_lib = @import("month.zig");
 const Month = month_lib.Month;
 const CalendarMonth = month_lib.CalendarMonth;
 const Week = @import("week.zig").Week;
-usingnamespace @import("parse.zig");
+const parse = @import("parse.zig");
+const matchLiteral = parse.matchLiteral;
+const ParseResult = parse.ParseResult;
+const parseResult = parse.parseResult;
 
-pub const Weekday = enum {
-    Monday = 1, Tuesday = 2, Wednesday = 3, Thursday = 4, Friday = 5, Saturday = 6, Sunday = 7
-};
+pub const Weekday = enum(u3) { Monday = 1, Tuesday = 2, Wednesday = 3, Thursday = 4, Friday = 5, Saturday = 6, Sunday = 7 };
 
 fn monthDaysApart(a: Month, b: Month) i32 {
     if (a.equals(b)) return 0;
@@ -44,7 +45,6 @@ pub const Date = struct {
     pub fn initFromMonth(month: Month, day: i32) Date {
         var d = day;
         var m = month;
-        const days_in_month = m.numberOfDays();
         while (d > m.numberOfDays()) {
             d -= m.numberOfDays();
             m = m.plusMonths(1);
@@ -117,8 +117,9 @@ pub const Date = struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
+        _ = options;
         if (fmt.len == 0) return writer.print("{YYYY-MM-DD}", .{value});
-        comptime const tokens = comptime blk: {
+        const tokens = comptime blk: {
             var stream = DateFormatTokenStream{ .fmt = fmt };
             var tokens: []const DateFormatToken = &[0]DateFormatToken{};
             inline while (stream.next()) |token| {
@@ -225,9 +226,7 @@ const DateFormatTokenStream = struct {
     }
 };
 
-const ParseMode = enum {
-    month, date
-};
+const ParseMode = enum { month, date };
 
 pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, reader: anytype) !(switch (mode) {
     .month => Month,
@@ -243,7 +242,7 @@ pub fn parseDateComptimeFmt(comptime fmt: []const u8, comptime mode: ParseMode, 
 
     var peek_stream = io.peekStream(1, reader);
 
-    inline for (fmt) |c, i| {
+    inline for (fmt) |c| {
         var match_literal = false;
         switch (c) {
             'D' => {
@@ -286,7 +285,7 @@ pub fn parseDateFmt(fmt: []const u8, comptime mode: ParseMode, reader: anytype) 
     var month: ?i32 = null;
     var day: ?i32 = null;
     var peek_stream = io.peekStream(1, reader);
-    for (fmt) |c, i| {
+    for (fmt) |c| {
         var match_literal = false;
         switch (c) {
             'D' => {
@@ -365,27 +364,6 @@ fn parseMonth(peek_stream: anytype) !i32 {
         }
     }
     if (read == 0) return error.InvalidMonth;
-}
-
-fn parseYear(peek_stream: anytype) !u16 {
-    year = 0;
-    var read: usize = 0;
-    while (read < 4) : (read += 1) {
-        const byte = stream.readByte() catch |err| {
-            switch (err) {
-                error.EndOfStream => break,
-            }
-        };
-        switch (byte) {
-            '0'...'9' => {
-                year = year.? * 10 + @as(u16, byte - '0');
-            },
-            else => {
-                try peek.putBackByte(byte);
-            },
-        }
-    }
-    if (read == 0) return error.InvalidYear;
 }
 
 test "can create day" {
